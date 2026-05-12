@@ -1,0 +1,939 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Markwood Mushrooms — Block Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f4f1ec;
+    --surface: #ffffff;
+    --surface2: #ede9e3;
+    --border: #d4cfc7;
+    --border2: #c2bdb4;
+    --text: #1a1916;
+    --text2: #6b6760;
+    --text3: #9e9b96;
+    --accent: #2d5a27;
+    --accent-light: #e8f0e7;
+    --accent-text: #1e3d1a;
+    --danger: #7a2020;
+    --danger-light: #f5e8e8;
+    --amber: #7a5520;
+    --amber-light: #f5ede0;
+    --radius: 6px;
+    --radius-lg: 10px;
+
+    --oyster-bg: #daeaf5;
+    --oyster-text: #1a4060;
+    --lm-bg: #d8edd8;
+    --lm-text: #1e4020;
+    --maitake-bg: #f5e6cc;
+    --maitake-text: #5a3a10;
+    --chestnut-bg: #eed9e0;
+    --chestnut-text: #4a1f2e;
+    --enoki-bg: #e8e0f0;
+    --enoki-text: #2e1f4a;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+
+  header {
+    background: var(--text);
+    color: #f4f1ec;
+    padding: 0 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 52px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .header-title {
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    opacity: 0.9;
+  }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .header-stat {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    opacity: 0.6;
+    letter-spacing: 0.04em;
+  }
+
+  .btn-export {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    background: rgba(255,255,255,0.12);
+    border: 0.5px solid rgba(255,255,255,0.25);
+    color: #f4f1ec;
+    padding: 6px 14px;
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .btn-export:hover { background: rgba(255,255,255,0.2); }
+
+  .main {
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    gap: 0;
+    min-height: calc(100vh - 52px);
+  }
+
+  .walls-area {
+    padding: 1.5rem 2rem;
+    overflow-y: auto;
+  }
+
+  .sidebar {
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    padding: 1.5rem;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .mode-bar {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 1.25rem;
+  }
+
+  .mode-btn {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    padding: 7px 14px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text2);
+    cursor: pointer;
+    transition: all 0.15s;
+    flex: 1;
+    text-align: center;
+  }
+  .mode-btn:hover { border-color: var(--border2); color: var(--text); }
+  .mode-btn.active-place { background: var(--accent-light); border-color: var(--accent); color: var(--accent-text); }
+  .mode-btn.active-harvest { background: var(--amber-light); border-color: var(--amber); color: var(--amber); }
+  .mode-btn.active-clear { background: var(--danger-light); border-color: var(--danger); color: var(--danger); }
+
+  .mode-hint {
+    font-size: 12px;
+    color: var(--text3);
+    margin-bottom: 1rem;
+    font-style: italic;
+    min-height: 16px;
+  }
+
+  .stats-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 1.5rem;
+  }
+
+  .stat-card {
+    background: var(--surface2);
+    border-radius: var(--radius);
+    padding: 10px 12px;
+  }
+
+  .stat-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text3);
+    margin-bottom: 4px;
+  }
+
+  .stat-value {
+    font-size: 22px;
+    font-weight: 600;
+    color: var(--text);
+    line-height: 1;
+  }
+
+  .walls-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+  }
+
+  .wall-section {}
+
+  .wall-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text3);
+    margin-bottom: 10px;
+    text-align: center;
+  }
+
+  .bays-container {
+    display: flex;
+    gap: 6px;
+    justify-content: center;
+  }
+
+  .bay-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .bay-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 9px;
+    color: var(--text3);
+    text-align: center;
+    margin-bottom: 3px;
+    letter-spacing: 0.04em;
+  }
+
+  .shelf-row {
+    display: flex;
+    gap: 2px;
+    margin-bottom: 1px;
+  }
+
+  .cell {
+    width: 26px;
+    height: 26px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'DM Mono', monospace;
+    font-size: 8px;
+    font-weight: 500;
+    transition: all 0.1s;
+    position: relative;
+    user-select: none;
+  }
+
+  .cell:hover { border-color: var(--border2); transform: scale(1.08); z-index: 2; }
+  .cell.occupied { border-color: transparent; }
+  .cell.selected { outline: 2px solid var(--text); outline-offset: 1px; }
+
+  .cell.harvested-indicator::after {
+    content: '';
+    position: absolute;
+    bottom: 2px;
+    right: 2px;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.25);
+  }
+
+  .bay-divider {
+    width: 8px;
+  }
+
+  .shelf-number {
+    font-family: 'DM Mono', monospace;
+    font-size: 8px;
+    color: var(--text3);
+    width: 12px;
+    text-align: right;
+    line-height: 26px;
+    margin-right: 3px;
+    flex-shrink: 0;
+  }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 1.5rem;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    color: var(--text2);
+  }
+
+  .legend-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+  }
+
+  /* Sidebar panels */
+  .panel-section {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+  }
+
+  .panel-header {
+    background: var(--surface2);
+    padding: 10px 14px;
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text2);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .panel-body {
+    padding: 14px;
+  }
+
+  .form-group {
+    margin-bottom: 10px;
+  }
+
+  .form-group label {
+    display: block;
+    font-size: 11px;
+    color: var(--text3);
+    margin-bottom: 4px;
+    font-family: 'DM Mono', monospace;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .form-group input,
+  .form-group select {
+    width: 100%;
+    height: 34px;
+    padding: 0 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+
+  .form-group input:focus,
+  .form-group select:focus {
+    border-color: var(--border2);
+  }
+
+  .btn-confirm {
+    width: 100%;
+    height: 36px;
+    border-radius: var(--radius);
+    border: none;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    margin-top: 4px;
+  }
+
+  .btn-confirm.place { background: var(--accent); color: #fff; }
+  .btn-confirm.place:hover { background: var(--accent-text); }
+  .btn-confirm.harvest { background: var(--amber); color: #fff; }
+  .btn-confirm.harvest:hover { opacity: 0.9; }
+
+  .block-detail-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    margin-bottom: 10px;
+  }
+
+  .detail-item label {
+    display: block;
+    font-size: 10px;
+    font-family: 'DM Mono', monospace;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text3);
+    margin-bottom: 2px;
+  }
+
+  .detail-item span {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text);
+  }
+
+  .harvest-log {
+    list-style: none;
+    margin-top: 8px;
+  }
+
+  .harvest-log li {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    padding: 5px 0;
+    border-top: 1px solid var(--border);
+    color: var(--text2);
+  }
+
+  .harvest-log li .yield {
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text);
+  }
+
+  .empty-hint {
+    color: var(--text3);
+    font-size: 12px;
+    font-style: italic;
+    padding: 6px 0;
+  }
+
+  .species-badge {
+    display: inline-block;
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-weight: 500;
+  }
+
+  .days-badge {
+    font-family: 'DM Mono', monospace;
+    font-size: 20px;
+    font-weight: 500;
+    color: var(--accent);
+  }
+
+  .total-yield-big {
+    font-family: 'DM Mono', monospace;
+    font-size: 20px;
+    font-weight: 500;
+    color: var(--amber);
+  }
+
+  .position-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: var(--text3);
+    margin-bottom: 10px;
+  }
+
+  .remove-btn {
+    width: 100%;
+    height: 32px;
+    border-radius: var(--radius);
+    border: 1px solid var(--danger);
+    background: var(--danger-light);
+    color: var(--danger);
+    font-size: 12px;
+    font-family: 'DM Mono', monospace;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    transition: all 0.15s;
+    margin-top: 8px;
+  }
+  .remove-btn:hover { background: var(--danger); color: #fff; }
+
+  .saved-indicator {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    color: var(--accent);
+    opacity: 0;
+    transition: opacity 0.3s;
+    letter-spacing: 0.04em;
+  }
+  .saved-indicator.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-title">Markwood Mushrooms — Block Tracker</div>
+  <div class="header-right">
+    <span class="header-stat" id="headerStat">0 / 324 blocks</span>
+    <span class="saved-indicator" id="savedIndicator">✓ saved</span>
+    <button class="btn-export" onclick="exportCSV()">↓ Export CSV</button>
+  </div>
+</header>
+
+<div class="main">
+
+  <div class="walls-area">
+
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">Occupied</div>
+        <div class="stat-value" id="statOccupied">0 <span style="font-size:13px;color:var(--text3);font-weight:400">/ 324</span></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Total harvested</div>
+        <div class="stat-value" id="statHarvested">0 g</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Avg days on shelf</div>
+        <div class="stat-value" id="statAvgDays">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Batches harvested</div>
+        <div class="stat-value" id="statBatchesHarvested">0</div>
+      </div>
+    </div>
+
+    <div class="legend" id="legend">
+      <div class="legend-item"><div class="legend-dot" style="background:var(--oyster-bg);border:1px solid #aac8e0"></div>Oyster</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--lm-bg);border:1px solid #8ec08e"></div>Lion's Mane</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--maitake-bg);border:1px solid #d4a870"></div>Maitake</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--chestnut-bg);border:1px solid #c4a0b0"></div>Chestnut</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--enoki-bg);border:1px solid #b8a8d4"></div>Enoki</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--surface);border:1px solid var(--border)"></div>Empty</div>
+    </div>
+
+    <div class="walls-grid" id="wallsGrid"></div>
+
+  </div>
+
+  <div class="sidebar">
+
+    <div>
+      <div class="mode-bar">
+        <button class="mode-btn active-place" id="modePlace" onclick="setMode('place')">Place</button>
+        <button class="mode-btn" id="modeHarvest" onclick="setMode('harvest')">Harvest</button>
+        <button class="mode-btn" id="modeClear" onclick="setMode('clear')">Remove</button>
+      </div>
+      <div class="mode-hint" id="modeHint">Select an empty cell to place a block.</div>
+    </div>
+
+    <div class="panel-section" id="placePanel">
+      <div class="panel-header">Place block</div>
+      <div class="panel-body">
+        <div class="empty-hint" id="placePrompt">Click an empty cell on the wall.</div>
+        <div id="placeForm" style="display:none">
+          <div class="form-group">
+            <label>Batch / block ID</label>
+            <input id="fBatchId" placeholder="e.g. OY-042">
+          </div>
+          <div class="form-group">
+            <label>Species</label>
+            <select id="fSpecies">
+              <option>Oyster</option>
+              <option>Lion's Mane</option>
+              <option>Maitake</option>
+              <option>Chestnut</option>
+              <option>Enoki</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Inoculation date</label>
+            <input type="date" id="fInocDate">
+          </div>
+          <div class="form-group">
+            <label>Placed on shelf</label>
+            <input type="date" id="fPlacedDate">
+          </div>
+          <button class="btn-confirm place" onclick="confirmPlace()">Confirm placement</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel-section" id="harvestPanel" style="display:none">
+      <div class="panel-header">Log harvest</div>
+      <div class="panel-body">
+        <div class="empty-hint" id="harvestPrompt">Click an occupied block.</div>
+        <div id="harvestForm" style="display:none">
+          <div class="position-label" id="harvestPosition"></div>
+          <div class="block-detail-grid" id="harvestBlockInfo"></div>
+          <div class="form-group">
+            <label>Harvest date</label>
+            <input type="date" id="fHarvestDate">
+          </div>
+          <div class="form-group">
+            <label>Yield (g)</label>
+            <input type="number" id="fYield" placeholder="450" min="0">
+          </div>
+          <div class="form-group">
+            <label>Flush #</label>
+            <input type="number" id="fFlush" value="1" min="1">
+          </div>
+          <div class="form-group">
+            <label>Notes</label>
+            <input id="fNotes" placeholder="Optional">
+          </div>
+          <button class="btn-confirm harvest" onclick="confirmHarvest()">Log harvest</button>
+          <ul class="harvest-log" id="harvestList"></ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel-section" id="blockDetailPanel" style="display:none">
+      <div class="panel-header">Block info</div>
+      <div class="panel-body">
+        <div class="position-label" id="detailPosition"></div>
+        <div class="block-detail-grid" id="detailContent"></div>
+        <ul class="harvest-log" id="detailHarvestLog"></ul>
+        <button class="remove-btn" onclick="removeSelected()">Remove block from shelf</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const WALLS = ['Wall A', 'Wall B'];
+const BAYS = 3;
+const SHELVES = 9;
+const SLOTS = 6;
+const STORAGE_KEY = 'markwood_blocks_v1';
+
+const speciesConfig = {
+  'Oyster':      { bg: 'var(--oyster-bg)',   text: 'var(--oyster-text)',   abbr: 'Oy' },
+  "Lion's Mane": { bg: 'var(--lm-bg)',       text: 'var(--lm-text)',       abbr: 'LM' },
+  'Maitake':     { bg: 'var(--maitake-bg)',  text: 'var(--maitake-text)',  abbr: 'Mt' },
+  'Chestnut':    { bg: 'var(--chestnut-bg)', text: 'var(--chestnut-text)', abbr: 'Ch' },
+  'Enoki':       { bg: 'var(--enoki-bg)',    text: 'var(--enoki-text)',    abbr: 'En' },
+};
+
+let mode = 'place';
+let selectedCell = null;
+let blocks = {};
+
+function load() {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) blocks = JSON.parse(saved);
+  } catch(e) { blocks = {}; }
+}
+
+function save() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(blocks));
+    const ind = document.getElementById('savedIndicator');
+    ind.classList.add('show');
+    setTimeout(() => ind.classList.remove('show'), 1500);
+  } catch(e) {}
+}
+
+function cellKey(wall, bay, shelf, slot) {
+  return `${wall}|${bay}|${shelf}|${slot}`;
+}
+
+function today() {
+  return new Date().toISOString().split('T')[0];
+}
+
+function daysSince(dateStr) {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  const now = new Date();
+  return Math.round((now - d) / 86400000);
+}
+
+function formatDate(d) {
+  if (!d) return '—';
+  const parts = d.split('-');
+  return `${parts[2]}/${parts[1]}/${parts[0]}`;
+}
+
+function setMode(m) {
+  mode = m;
+  selectedCell = null;
+  ['place','harvest','clear'].forEach(x => {
+    document.getElementById('mode' + x.charAt(0).toUpperCase() + x.slice(1))
+      .className = 'mode-btn' + (m === x ? ' active-' + x : '');
+  });
+  const hints = {
+    place: 'Select an empty cell to place a block.',
+    harvest: 'Click an occupied block to log a harvest.',
+    clear: 'Click an occupied block to remove it from the shelf.'
+  };
+  document.getElementById('modeHint').textContent = hints[m];
+  document.getElementById('placePanel').style.display = m === 'place' ? '' : 'none';
+  document.getElementById('harvestPanel').style.display = m === 'harvest' ? '' : 'none';
+  document.getElementById('blockDetailPanel').style.display = 'none';
+  document.getElementById('placePrompt').style.display = '';
+  document.getElementById('placeForm').style.display = 'none';
+  document.getElementById('harvestPrompt').style.display = '';
+  document.getElementById('harvestForm').style.display = 'none';
+  renderWalls();
+}
+
+function cellClick(wall, bay, shelf, slot) {
+  const key = cellKey(wall, bay, shelf, slot);
+  const occupied = !!blocks[key];
+  selectedCell = { wall, bay, shelf, slot, key };
+
+  if (mode === 'place') {
+    if (occupied) { alert('Cell already occupied.'); return; }
+    document.getElementById('fBatchId').value = '';
+    document.getElementById('fInocDate').value = today();
+    document.getElementById('fPlacedDate').value = today();
+    document.getElementById('placePrompt').style.display = 'none';
+    document.getElementById('placeForm').style.display = '';
+  } else if (mode === 'harvest') {
+    if (!occupied) { alert('No block in this position.'); return; }
+    const b = blocks[key];
+    document.getElementById('fHarvestDate').value = today();
+    document.getElementById('fYield').value = '';
+    document.getElementById('fFlush').value = (b.harvests || []).length + 1;
+    document.getElementById('fNotes').value = '';
+    document.getElementById('harvestPosition').textContent =
+      `${b.wall} · Bay ${b.bay + 1} · Shelf ${b.shelf + 1} · Slot ${b.slot + 1}`;
+    renderHarvestBlockInfo(b);
+    document.getElementById('harvestPrompt').style.display = 'none';
+    document.getElementById('harvestForm').style.display = '';
+  } else if (mode === 'clear') {
+    if (!occupied) { alert('No block in this position.'); return; }
+    showBlockDetail(blocks[key], key);
+    document.getElementById('blockDetailPanel').style.display = '';
+  }
+  renderWalls();
+}
+
+function renderHarvestBlockInfo(b) {
+  const days = daysSince(b.placedDate);
+  const totalYield = (b.harvests || []).reduce((a, h) => a + Number(h.yield), 0);
+  document.getElementById('harvestBlockInfo').innerHTML = `
+    <div class="detail-item"><label>Batch</label><span>${b.batchId || '—'}</span></div>
+    <div class="detail-item"><label>Species</label><span>${b.species}</span></div>
+    <div class="detail-item"><label>Days on shelf</label><span class="days-badge">${days ?? '—'}</span></div>
+    <div class="detail-item"><label>Total yield</label><span class="total-yield-big">${totalYield > 0 ? totalYield + 'g' : '—'}</span></div>
+  `;
+  const hl = document.getElementById('harvestList');
+  hl.innerHTML = '';
+  (b.harvests || []).forEach(h => {
+    const li = document.createElement('li');
+    li.innerHTML = `<span>Flush ${h.flush} · ${formatDate(h.date)}${h.notes ? ' · ' + h.notes : ''}</span><span class="yield">${h.yield}g</span>`;
+    hl.appendChild(li);
+  });
+}
+
+function showBlockDetail(b, key) {
+  const days = daysSince(b.placedDate);
+  const totalYield = (b.harvests || []).reduce((a, h) => a + Number(h.yield), 0);
+  document.getElementById('detailPosition').textContent =
+    `${b.wall} · Bay ${b.bay + 1} · Shelf ${b.shelf + 1} · Slot ${b.slot + 1}`;
+  document.getElementById('detailContent').innerHTML = `
+    <div class="detail-item"><label>Batch</label><span>${b.batchId || '—'}</span></div>
+    <div class="detail-item"><label>Species</label><span>${b.species}</span></div>
+    <div class="detail-item"><label>Inoculated</label><span>${formatDate(b.inocDate)}</span></div>
+    <div class="detail-item"><label>Placed</label><span>${formatDate(b.placedDate)}</span></div>
+    <div class="detail-item"><label>Days on shelf</label><span class="days-badge">${days ?? '—'}</span></div>
+    <div class="detail-item"><label>Total yield</label><span class="total-yield-big">${totalYield > 0 ? totalYield + 'g' : '0g'}</span></div>
+  `;
+  const hl = document.getElementById('detailHarvestLog');
+  hl.innerHTML = '';
+  (b.harvests || []).forEach(h => {
+    const li = document.createElement('li');
+    li.innerHTML = `<span>Flush ${h.flush} · ${formatDate(h.date)}${h.notes ? ' · ' + h.notes : ''}</span><span class="yield">${h.yield}g</span>`;
+    hl.appendChild(li);
+  });
+}
+
+function confirmPlace() {
+  if (!selectedCell) return;
+  const placedDate = document.getElementById('fPlacedDate').value;
+  if (!placedDate) { alert('Enter a placed date.'); return; }
+  blocks[selectedCell.key] = {
+    batchId: document.getElementById('fBatchId').value.trim(),
+    species: document.getElementById('fSpecies').value,
+    inocDate: document.getElementById('fInocDate').value,
+    placedDate,
+    harvests: [],
+    wall: selectedCell.wall,
+    bay: selectedCell.bay,
+    shelf: selectedCell.shelf,
+    slot: selectedCell.slot,
+  };
+  save();
+  selectedCell = null;
+  document.getElementById('placePrompt').style.display = '';
+  document.getElementById('placeForm').style.display = 'none';
+  renderWalls();
+  updateStats();
+}
+
+function confirmHarvest() {
+  if (!selectedCell) return;
+  const b = blocks[selectedCell.key];
+  if (!b) return;
+  const date = document.getElementById('fHarvestDate').value;
+  const yld = document.getElementById('fYield').value;
+  const flush = document.getElementById('fFlush').value;
+  const notes = document.getElementById('fNotes').value.trim();
+  if (!date || !yld) { alert('Enter date and yield.'); return; }
+  if (!b.harvests) b.harvests = [];
+  b.harvests.push({ date, yield: Number(yld), flush: Number(flush), notes });
+  save();
+  renderHarvestBlockInfo(b);
+  renderWalls();
+  updateStats();
+}
+
+function removeSelected() {
+  if (!selectedCell || !blocks[selectedCell.key]) return;
+  const b = blocks[selectedCell.key];
+  if (confirm(`Remove ${b.batchId || 'this block'} (${b.species}) from ${b.wall} Bay ${b.bay+1} Shelf ${b.shelf+1}?`)) {
+    delete blocks[selectedCell.key];
+    save();
+    selectedCell = null;
+    document.getElementById('blockDetailPanel').style.display = 'none';
+    renderWalls();
+    updateStats();
+  }
+}
+
+function renderWalls() {
+  const container = document.getElementById('wallsGrid');
+  container.innerHTML = '';
+  WALLS.forEach(wall => {
+    const wallDiv = document.createElement('div');
+    wallDiv.className = 'wall-section';
+
+    const lbl = document.createElement('div');
+    lbl.className = 'wall-label';
+    lbl.textContent = wall;
+    wallDiv.appendChild(lbl);
+
+    const baysContainer = document.createElement('div');
+    baysContainer.className = 'bays-container';
+
+    for (let bay = 0; bay < BAYS; bay++) {
+      const bayWrapper = document.createElement('div');
+      bayWrapper.className = 'bay-wrapper';
+
+      const bayLbl = document.createElement('div');
+      bayLbl.className = 'bay-label';
+      bayLbl.textContent = `Bay ${bay + 1}`;
+      bayWrapper.appendChild(bayLbl);
+
+      for (let shelf = 0; shelf < SHELVES; shelf++) {
+        const shelfRow = document.createElement('div');
+        shelfRow.className = 'shelf-row';
+
+        if (bay === 0) {
+          const sn = document.createElement('div');
+          sn.className = 'shelf-number';
+          sn.textContent = shelf + 1;
+          shelfRow.appendChild(sn);
+        } else {
+          const sn = document.createElement('div');
+          sn.className = 'shelf-number';
+          sn.style.visibility = 'hidden';
+          shelfRow.appendChild(sn);
+        }
+
+        for (let slot = 0; slot < SLOTS; slot++) {
+          const key = cellKey(wall, bay, shelf, slot);
+          const b = blocks[key];
+          const cell = document.createElement('div');
+          cell.className = 'cell' + (b ? ' occupied' : '');
+          if (b && b.harvests && b.harvests.length > 0) cell.classList.add('harvested-indicator');
+          if (selectedCell && selectedCell.key === key) cell.classList.add('selected');
+          if (b) {
+            const sc = speciesConfig[b.species] || { bg: '#eee', text: '#333', abbr: '?' };
+            cell.style.background = sc.bg;
+            cell.style.color = sc.text;
+            cell.textContent = sc.abbr;
+            const days = daysSince(b.placedDate);
+            cell.title = `${b.batchId || 'Block'} · ${b.species}\nPlaced: ${formatDate(b.placedDate)} (${days}d ago)\nShelves: ${wall} B${bay+1} S${shelf+1} P${slot+1}\nHarvests: ${(b.harvests||[]).length}`;
+          } else {
+            cell.title = `${wall} · Bay ${bay+1} · Shelf ${shelf+1} · Slot ${slot+1}`;
+          }
+          cell.onclick = () => cellClick(wall, bay, shelf, slot);
+          shelfRow.appendChild(cell);
+        }
+        bayWrapper.appendChild(shelfRow);
+      }
+      baysContainer.appendChild(bayWrapper);
+
+      if (bay < BAYS - 1) {
+        const div = document.createElement('div');
+        div.className = 'bay-divider';
+        baysContainer.appendChild(div);
+      }
+    }
+
+    wallDiv.appendChild(baysContainer);
+    container.appendChild(wallDiv);
+  });
+}
+
+function updateStats() {
+  const occ = Object.keys(blocks).length;
+  document.getElementById('statOccupied').innerHTML = `${occ} <span style="font-size:13px;color:var(--text3);font-weight:400">/ 324</span>`;
+  document.getElementById('headerStat').textContent = `${occ} / 324 blocks`;
+
+  let totalG = 0, totalDays = 0, cnt = 0, batchesHarvested = 0;
+  const now = new Date();
+  Object.values(blocks).forEach(b => {
+    (b.harvests || []).forEach(h => totalG += Number(h.yield));
+    if (b.placedDate) {
+      const days = Math.round((now - new Date(b.placedDate)) / 86400000);
+      totalDays += days; cnt++;
+    }
+    if (b.harvests && b.harvests.length > 0) batchesHarvested++;
+  });
+  document.getElementById('statHarvested').textContent = totalG >= 1000
+    ? (totalG / 1000).toFixed(2) + ' kg' : totalG + ' g';
+  document.getElementById('statAvgDays').textContent = cnt ? Math.round(totalDays / cnt) + 'd' : '—';
+  document.getElementById('statBatchesHarvested').textContent = batchesHarvested;
+}
+
+function exportCSV() {
+  const rows = [['Wall','Bay','Shelf','Slot','Batch ID','Species','Inoculation Date','Placed Date','Days on Shelf','Total Yield (g)','Flushes','Last Harvest','Notes']];
+  const now = new Date();
+  Object.entries(blocks).forEach(([key, b]) => {
+    const totalYield = (b.harvests || []).reduce((a, h) => a + Number(h.yield), 0);
+    const lastH = b.harvests && b.harvests.length ? b.harvests[b.harvests.length - 1].date : '';
+    const days = b.placedDate ? Math.round((now - new Date(b.placedDate)) / 86400000) : '';
+    const notes = (b.harvests || []).map(h => h.notes).filter(Boolean).join('; ');
+    rows.push([b.wall, b.bay + 1, b.shelf + 1, b.slot + 1, b.batchId || '', b.species,
+      b.inocDate || '', b.placedDate || '', days, totalYield,
+      (b.harvests || []).length, lastH, notes]);
+  });
+  const csv = rows.map(r => r.map(v => `"${v}"`).join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+  a.download = `markwood_blocks_${today()}.csv`;
+  a.click();
+}
+
+load();
+renderWalls();
+updateStats();
+setMode('place');
+</script>
+</body>
+</html>
