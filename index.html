@@ -142,6 +142,7 @@
   }
   .mode-btn:hover { border-color: var(--border2); color: var(--text); }
   .mode-btn.active-place { background: var(--accent-light); border-color: var(--accent); color: var(--accent-text); }
+  .mode-btn.active-batch { background: #e8e0f0; border-color: #7a5a9a; color: #3a1f5a; }
   .mode-btn.active-harvest { background: var(--amber-light); border-color: var(--amber); color: var(--amber); }
   .mode-btn.active-clear { background: var(--danger-light); border-color: var(--danger); color: var(--danger); }
 
@@ -248,6 +249,8 @@
   .cell:hover { border-color: var(--border2); transform: scale(1.08); z-index: 2; }
   .cell.occupied { border-color: transparent; }
   .cell.selected { outline: 2px solid var(--text); outline-offset: 1px; }
+  .cell.drag-highlight { outline: 2px solid #7a5a9a; outline-offset: 1px; background: #e8e0f0 !important; color: #3a1f5a !important; }
+  .cell.drag-highlight.occupied { outline: 2px dashed #c2bdb4; }
 
   .cell.harvested-indicator::after {
     content: '';
@@ -467,7 +470,13 @@
   }
   .remove-btn:hover { background: var(--danger); color: #fff; }
 
-  .saved-indicator {
+  .batch-count {
+    font-family: 'DM Mono', monospace;
+    font-size: 20px;
+    font-weight: 500;
+    color: #7a5a9a;
+  }
+
     font-family: 'DM Mono', monospace;
     font-size: 10px;
     color: var(--accent);
@@ -530,13 +539,49 @@
     <div>
       <div class="mode-bar">
         <button class="mode-btn active-place" id="modePlace" onclick="setMode('place')">Place</button>
+        <button class="mode-btn" id="modeBatch" onclick="setMode('batch')">Batch</button>
         <button class="mode-btn" id="modeHarvest" onclick="setMode('harvest')">Harvest</button>
         <button class="mode-btn" id="modeClear" onclick="setMode('clear')">Remove</button>
       </div>
       <div class="mode-hint" id="modeHint">Select an empty cell to place a block.</div>
     </div>
 
-    <div class="panel-section" id="placePanel">
+    <div class="panel-section" id="batchPanel" style="display:none">
+      <div class="panel-header">Batch place</div>
+      <div class="panel-body">
+        <div class="form-group">
+          <label>Batch / block ID</label>
+          <input id="fbBatchId" placeholder="e.g. OY-042">
+        </div>
+        <div class="form-group">
+          <label>Species</label>
+          <select id="fbSpecies">
+            <option>Oyster</option>
+            <option>Lion's Mane</option>
+            <option>Maitake</option>
+            <option>Chestnut</option>
+            <option>Enoki</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Inoculation date</label>
+          <input type="date" id="fbInocDate">
+        </div>
+        <div class="form-group">
+          <label>Placed on shelf</label>
+          <input type="date" id="fbPlacedDate">
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin:10px 0 6px">
+          <span style="font-size:11px;font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:0.04em;color:var(--text3)">Selected cells</span>
+          <span class="batch-count" id="batchCount">0</span>
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:10px;font-style:italic" id="batchSkipNote"></div>
+        <button class="btn-confirm place" style="background:#7a5a9a" onclick="confirmBatch()" id="batchConfirmBtn" disabled>Place 0 blocks</button>
+        <button class="btn-confirm" style="margin-top:6px;border:1px solid var(--border);background:transparent;color:var(--text2)" onclick="clearDragSelection()">Clear selection</button>
+      </div>
+    </div>
+
+
       <div class="panel-header">Place block</div>
       <div class="panel-body">
         <div class="empty-hint" id="placePrompt">Click an empty cell on the wall.</div>
@@ -628,6 +673,8 @@ const speciesConfig = {
 let mode = 'place';
 let selectedCell = null;
 let blocks = {};
+let dragSelection = new Set();
+let isDragging = false;
 
 function load() {
   try {
@@ -669,23 +716,32 @@ function formatDate(d) {
 function setMode(m) {
   mode = m;
   selectedCell = null;
-  ['place','harvest','clear'].forEach(x => {
-    document.getElementById('mode' + x.charAt(0).toUpperCase() + x.slice(1))
-      .className = 'mode-btn' + (m === x ? ' active-' + x : '');
+  dragSelection.clear();
+  isDragging = false;
+  ['place','batch','harvest','clear'].forEach(x => {
+    const el = document.getElementById('mode' + x.charAt(0).toUpperCase() + x.slice(1));
+    if (el) el.className = 'mode-btn' + (m === x ? ' active-' + x : '');
   });
   const hints = {
     place: 'Select an empty cell to place a block.',
+    batch: 'Click and drag across empty cells to select them, then fill in the details and confirm.',
     harvest: 'Click an occupied block to log a harvest.',
     clear: 'Click an occupied block to remove it from the shelf.'
   };
   document.getElementById('modeHint').textContent = hints[m];
   document.getElementById('placePanel').style.display = m === 'place' ? '' : 'none';
+  document.getElementById('batchPanel').style.display = m === 'batch' ? '' : 'none';
   document.getElementById('harvestPanel').style.display = m === 'harvest' ? '' : 'none';
   document.getElementById('blockDetailPanel').style.display = 'none';
   document.getElementById('placePrompt').style.display = '';
   document.getElementById('placeForm').style.display = 'none';
   document.getElementById('harvestPrompt').style.display = '';
   document.getElementById('harvestForm').style.display = 'none';
+  if (m === 'batch') {
+    document.getElementById('fbPlacedDate').value = today();
+    document.getElementById('fbInocDate').value = today();
+    updateBatchCount();
+  }
   renderWalls();
 }
 
@@ -814,7 +870,50 @@ function removeSelected() {
   }
 }
 
-function renderWalls() {
+function updateBatchCount() {
+  const emptySelected = [...dragSelection].filter(k => !blocks[k]).length;
+  const skipped = dragSelection.size - emptySelected;
+  document.getElementById('batchCount').textContent = emptySelected;
+  document.getElementById('batchSkipNote').textContent = skipped > 0 ? `${skipped} occupied cell${skipped>1?'s':''} will be skipped` : '';
+  const btn = document.getElementById('batchConfirmBtn');
+  btn.textContent = `Place ${emptySelected} block${emptySelected !== 1 ? 's' : ''}`;
+  btn.disabled = emptySelected === 0;
+}
+
+function clearDragSelection() {
+  dragSelection.clear();
+  updateBatchCount();
+  renderWalls();
+}
+
+function confirmBatch() {
+  const placedDate = document.getElementById('fbPlacedDate').value;
+  if (!placedDate) { alert('Enter a placed date.'); return; }
+  const batchId = document.getElementById('fbBatchId').value.trim();
+  const species = document.getElementById('fbSpecies').value;
+  const inocDate = document.getElementById('fbInocDate').value;
+  let placed = 0;
+  dragSelection.forEach(key => {
+    if (blocks[key]) return;
+    const parts = key.split('|');
+    blocks[key] = {
+      batchId, species, inocDate, placedDate,
+      harvests: [],
+      wall: parts[0],
+      bay: Number(parts[1]),
+      shelf: Number(parts[2]),
+      slot: Number(parts[3]),
+    };
+    placed++;
+  });
+  dragSelection.clear();
+  save();
+  updateBatchCount();
+  renderWalls();
+  updateStats();
+}
+
+
   const container = document.getElementById('wallsGrid');
   container.innerHTML = '';
   WALLS.forEach(wall => {
@@ -861,6 +960,7 @@ function renderWalls() {
           cell.className = 'cell' + (b ? ' occupied' : '');
           if (b && b.harvests && b.harvests.length > 0) cell.classList.add('harvested-indicator');
           if (selectedCell && selectedCell.key === key) cell.classList.add('selected');
+          if (mode === 'batch' && dragSelection.has(key)) cell.classList.add('drag-highlight');
           if (b) {
             const sc = speciesConfig[b.species] || { bg: '#eee', text: '#333', abbr: '?' };
             cell.style.background = sc.bg;
@@ -871,7 +971,25 @@ function renderWalls() {
           } else {
             cell.title = `${wall} · Bay ${bay+1} · Shelf ${shelf+1} · Slot ${slot+1}`;
           }
-          cell.onclick = () => cellClick(wall, bay, shelf, slot);
+          cell.addEventListener('mousedown', (e) => {
+            if (mode === 'batch') {
+              e.preventDefault();
+              isDragging = true;
+              dragSelection.clear();
+              dragSelection.add(key);
+              updateBatchCount();
+              renderWalls();
+            } else {
+              cellClick(wall, bay, shelf, slot);
+            }
+          });
+          cell.addEventListener('mouseenter', () => {
+            if (mode === 'batch' && isDragging) {
+              dragSelection.add(key);
+              updateBatchCount();
+              renderWalls();
+            }
+          });
           shelfRow.appendChild(cell);
         }
         bayWrapper.appendChild(shelfRow);
@@ -934,6 +1052,8 @@ load();
 renderWalls();
 updateStats();
 setMode('place');
+
+document.addEventListener('mouseup', () => { isDragging = false; });
 </script>
 </body>
 </html>
