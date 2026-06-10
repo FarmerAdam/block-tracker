@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Markwood — Data Migration</title>
+<style>
+  body { font-family: monospace; background: #1a1916; color: #f4f1ec; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
+  .box { background: #2a2724; border: 1px solid #3a3530; border-radius: 10px; padding: 2rem; max-width: 500px; width: 90%; }
+  h2 { font-size: 14px; letter-spacing: 0.1em; text-transform: uppercase; color: #9e9b96; margin-bottom: 1.5rem; }
+  .status { font-size: 13px; line-height: 1.8; color: #9e9b96; margin-bottom: 1.5rem; min-height: 120px; }
+  .status .ok  { color: #7ec87e; }
+  .status .err { color: #e07070; }
+  .status .inf { color: #f5c842; }
+  button { width: 100%; padding: 12px; background: #2d5a27; color: #fff; border: none; border-radius: 6px; font-size: 14px; font-family: monospace; cursor: pointer; letter-spacing: 0.05em; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .done-btn { background: #7a5a9a; margin-top: 10px; display: none; }
+</style>
+</head>
+<body>
+<div class="box">
+  <h2>Markwood Block Tracker — Data Migration</h2>
+  <div class="status" id="status">Ready to migrate your localStorage data to Supabase.<br><br>Click the button below to start.</div>
+  <button id="migrateBtn" onclick="migrate()">Push data to Supabase</button>
+  <button class="done-btn" id="doneBtn" onclick="window.location.href='https://farmeradam.github.io/block-tracker'">Open Block Tracker →</button>
+</div>
+
+<script>
+const SUPABASE_URL = 'https://jckfsvjodrrauwvpecks.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impja2ZzdmpvZHJyYXV3dnBlY2tzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5ODk4NTgsImV4cCI6MjA5NjU2NTg1OH0.ECtXTPKstyRW3Q_au5oucobZ1Axw44SDZXz368wNi4g';
+
+function log(msg, type='inf') {
+  const s = document.getElementById('status');
+  s.innerHTML += `<span class="${type}">${msg}</span><br>`;
+}
+
+async function migrate() {
+  const btn = document.getElementById('migrateBtn');
+  btn.disabled = true;
+  document.getElementById('status').innerHTML = '';
+
+  // Load from localStorage
+  let blocks = {};
+  try {
+    const raw = localStorage.getItem('markwood_blocks_v1');
+    if (!raw) { log('No data found in localStorage. Nothing to migrate.', 'err'); btn.disabled = false; return; }
+    blocks = JSON.parse(raw);
+    const count = Object.keys(blocks).length;
+    log(`Found ${count} blocks in localStorage.`, 'ok');
+  } catch(e) {
+    log('Failed to read localStorage: ' + e.message, 'err');
+    btn.disabled = false;
+    return;
+  }
+
+  // Build payload
+  const payload = Object.entries(blocks).map(([key, b]) => ({
+    cell_key:    key,
+    wall:        b.wall,
+    bay:         b.bay,
+    shelf:       b.shelf,
+    slot:        b.slot,
+    batch_id:    b.batchId || '',
+    species:     b.species || '',
+    inoc_date:   b.inocDate || '',
+    placed_date: b.placedDate || '',
+    harvests:    b.harvests || [],
+    updated_at:  new Date().toISOString(),
+  }));
+
+  log(`Pushing ${payload.length} blocks to Supabase...`, 'inf');
+
+  // Push in batches of 50
+  const batchSize = 50;
+  let pushed = 0;
+  for (let i = 0; i < payload.length; i += batchSize) {
+    const batch = payload.slice(i, i + batchSize);
+    try {
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/blocks`, {
+        method: 'POST',
+        headers: {
+          'apikey': SUPABASE_KEY,
+          'Authorization': `Bearer ${SUPABASE_KEY}`,
+          'Content-Type': 'application/json',
+          'Prefer': 'resolution=merge-duplicates',
+        },
+        body: JSON.stringify(batch),
+      });
+      if (!res.ok) {
+        const err = await res.text();
+        log(`Batch ${Math.floor(i/batchSize)+1} failed: ${err}`, 'err');
+      } else {
+        pushed += batch.length;
+        log(`Pushed ${pushed} / ${payload.length} blocks...`, 'inf');
+      }
+    } catch(e) {
+      log(`Network error on batch ${Math.floor(i/batchSize)+1}: ${e.message}`, 'err');
+    }
+  }
+
+  if (pushed === payload.length) {
+    log(`✓ All ${pushed} blocks migrated successfully!`, 'ok');
+    log('You can now open the Block Tracker on any device.', 'ok');
+    document.getElementById('doneBtn').style.display = 'block';
+  } else {
+    log(`${pushed} of ${payload.length} blocks pushed. Check errors above.`, 'err');
+    btn.disabled = false;
+  }
+}
+</script>
+</body>
+</html>
