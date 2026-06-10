@@ -29,8 +29,14 @@
   .header-title { font-family: 'DM Mono', monospace; font-size: 13px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.9; }
   .header-right { display: flex; align-items: center; gap: 12px; }
   .header-stat { font-family: 'DM Mono', monospace; font-size: 11px; opacity: 0.6; letter-spacing: 0.04em; }
-  .saved-indicator { font-family: 'DM Mono', monospace; font-size: 10px; color: #7ec87e; opacity: 0; transition: opacity 0.3s; letter-spacing: 0.04em; }
-  .saved-indicator.show { opacity: 1; }
+
+  .sync-indicator { font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.04em; display: flex; align-items: center; gap: 5px; }
+  .sync-dot { width: 7px; height: 7px; border-radius: 50%; background: #9e9b96; transition: background 0.3s; }
+  .sync-dot.syncing  { background: #f5c842; }
+  .sync-dot.synced   { background: #7ec87e; }
+  .sync-dot.error    { background: #e07070; }
+  .sync-label { opacity: 0.7; }
+
   .btn-export { font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; background: rgba(255,255,255,0.12); border: 0.5px solid rgba(255,255,255,0.25); color: #f4f1ec; padding: 6px 14px; border-radius: var(--radius); cursor: pointer; transition: background 0.15s; }
   .btn-export:hover { background: rgba(255,255,255,0.2); }
 
@@ -114,15 +120,28 @@
   .remove-btn { width: 100%; height: 36px; border-radius: var(--radius); border: 1px solid var(--danger); background: var(--danger-light); color: var(--danger); font-size: 13px; font-weight: 500; font-family: 'DM Sans', sans-serif; cursor: pointer; transition: all 0.15s; margin-top: 4px; }
   .remove-btn:hover:not(:disabled) { background: var(--danger); color: #fff; }
   .remove-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .loading-overlay { position: fixed; inset: 0; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; z-index: 999; }
+  .loading-spinner { width: 32px; height: 32px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-text { font-family: 'DM Mono', monospace; font-size: 12px; color: var(--text3); letter-spacing: 0.06em; }
 </style>
 </head>
 <body>
+
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="loading-spinner"></div>
+  <div class="loading-text">Loading farm data...</div>
+</div>
 
 <header>
   <div class="header-title">Markwood Mushrooms — Block Tracker</div>
   <div class="header-right">
     <span class="header-stat" id="headerStat">0 / 324 blocks</span>
-    <span class="saved-indicator" id="savedIndicator">✓ saved</span>
+    <div class="sync-indicator">
+      <div class="sync-dot" id="syncDot"></div>
+      <span class="sync-label" id="syncLabel">connecting</span>
+    </div>
     <button class="btn-export" onclick="exportCSV()">↓ Export CSV</button>
   </div>
 </header>
@@ -226,11 +245,157 @@
 </div>
 
 <script>
+// ── Supabase config ──────────────────────────────────────────────
+const SUPABASE_URL = 'https://jckfsvjodrrauwvpecks.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impja2ZzdmpvZHJyYXV3dnBlY2tzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5ODk4NTgsImV4cCI6MjA5NjU2NTg1OH0.ECtXTPKstyRW3Q_au5oucobZ1Axw44SDZXz368wNi4g';
+const TABLE = 'blocks';
+
+async function sbFetch(path, options = {}) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    ...options,
+    headers: {
+      'apikey': SUPABASE_KEY,
+      'Authorization': `Bearer ${SUPABASE_KEY}`,
+      'Content-Type': 'application/json',
+      'Prefer': 'return=minimal',
+      ...options.headers,
+    },
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Supabase error: ${res.status} ${err}`);
+  }
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
+}
+
+async function loadFromSupabase() {
+  setSyncState('syncing', 'loading');
+  try {
+    const rows = await sbFetch(`${TABLE}?select=*`, { headers: { 'Prefer': 'return=representation' } });
+    blocks = {};
+    (rows || []).forEach(row => {
+      blocks[row.cell_key] = {
+        batchId:     row.batch_id,
+        species:     row.species,
+        inocDate:    row.inoc_date,
+        placedDate:  row.placed_date,
+        harvests:    row.harvests || [],
+        wall:        row.wall,
+        bay:         row.bay,
+        shelf:       row.shelf,
+        slot:        row.slot,
+      };
+    });
+    setSyncState('synced', 'synced');
+    return true;
+  } catch(e) {
+    console.error(e);
+    setSyncState('error', 'offline');
+    // Fall back to localStorage
+    try { const s = localStorage.getItem('markwood_blocks_v1'); if (s) blocks = JSON.parse(s); } catch(_) {}
+    return false;
+  }
+}
+
+async function upsertBlock(key, b) {
+  setSyncState('syncing', 'saving');
+  try {
+    await sbFetch(`${TABLE}`, {
+      method: 'POST',
+      headers: { 'Prefer': 'resolution=merge-duplicates' },
+      body: JSON.stringify({
+        cell_key:    key,
+        wall:        b.wall,
+        bay:         b.bay,
+        shelf:       b.shelf,
+        slot:        b.slot,
+        batch_id:    b.batchId,
+        species:     b.species,
+        inoc_date:   b.inocDate,
+        placed_date: b.placedDate,
+        harvests:    b.harvests || [],
+        updated_at:  new Date().toISOString(),
+      }),
+    });
+    setSyncState('synced', 'synced');
+    localBackup();
+  } catch(e) {
+    console.error(e);
+    setSyncState('error', 'sync error');
+  }
+}
+
+async function upsertMany(entries) {
+  setSyncState('syncing', 'saving');
+  try {
+    const payload = entries.map(([key, b]) => ({
+      cell_key:    key,
+      wall:        b.wall,
+      bay:         b.bay,
+      shelf:       b.shelf,
+      slot:        b.slot,
+      batch_id:    b.batchId,
+      species:     b.species,
+      inoc_date:   b.inocDate,
+      placed_date: b.placedDate,
+      harvests:    b.harvests || [],
+      updated_at:  new Date().toISOString(),
+    }));
+    await sbFetch(`${TABLE}`, {
+      method: 'POST',
+      headers: { 'Prefer': 'resolution=merge-duplicates' },
+      body: JSON.stringify(payload),
+    });
+    setSyncState('synced', 'synced');
+    localBackup();
+  } catch(e) {
+    console.error(e);
+    setSyncState('error', 'sync error');
+  }
+}
+
+async function deleteBlock(key) {
+  setSyncState('syncing', 'saving');
+  try {
+    await sbFetch(`${TABLE}?cell_key=eq.${encodeURIComponent(key)}`, { method: 'DELETE' });
+    setSyncState('synced', 'synced');
+    localBackup();
+  } catch(e) {
+    console.error(e);
+    setSyncState('error', 'sync error');
+  }
+}
+
+async function deleteMany(keys) {
+  setSyncState('syncing', 'saving');
+  try {
+    const keyList = keys.map(k => `"${k}"`).join(',');
+    await sbFetch(`${TABLE}?cell_key=in.(${encodeURIComponent(keyList)})`, { method: 'DELETE' });
+    setSyncState('synced', 'synced');
+    localBackup();
+  } catch(e) {
+    console.error(e);
+    setSyncState('error', 'sync error');
+  }
+}
+
+function setSyncState(state, label) {
+  const dot = document.getElementById('syncDot');
+  const lbl = document.getElementById('syncLabel');
+  dot.className = `sync-dot ${state}`;
+  lbl.textContent = label;
+}
+
+function localBackup() {
+  try { localStorage.setItem('markwood_blocks_v1', JSON.stringify(blocks)); } catch(_) {}
+}
+
+// ── App state ────────────────────────────────────────────────────
 const WALLS   = ['Wall A', 'Wall B'];
 const BAYS    = 3;
 const SHELVES = 9;
 const SLOTS   = 6;
-const STORAGE_KEY = 'markwood_blocks_v1';
 
 const speciesConfig = {
   'Oyster':      { bg: 'var(--oyster-bg)',   text: 'var(--oyster-text)',   abbr: 'Oy' },
@@ -243,21 +408,9 @@ const speciesConfig = {
 let mode = 'place';
 let selectedCell = null;
 let blocks = {};
-let dragSelection = new Set();   // batch place selection
-let removeSelection = new Set(); // batch remove selection
+let dragSelection  = new Set();
+let removeSelection = new Set();
 let isDragging = false;
-
-function load() {
-  try { const s = localStorage.getItem(STORAGE_KEY); if (s) blocks = JSON.parse(s); } catch(e) { blocks = {}; }
-}
-function save() {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(blocks));
-    const ind = document.getElementById('savedIndicator');
-    ind.classList.add('show');
-    setTimeout(() => ind.classList.remove('show'), 1500);
-  } catch(e) {}
-}
 
 function cellKey(wall, bay, shelf, slot) { return `${wall}|${bay}|${shelf}|${slot}`; }
 function today() { return new Date().toISOString().split('T')[0]; }
@@ -348,24 +501,26 @@ function renderHarvestBlockInfo(b) {
   });
 }
 
-function confirmPlace() {
+async function confirmPlace() {
   if (!selectedCell) return;
   const placedDate = document.getElementById('fPlacedDate').value;
   if (!placedDate) { alert('Enter a placed date.'); return; }
-  blocks[selectedCell.key] = {
+  const b = {
     batchId: document.getElementById('fBatchId').value.trim(),
     species: document.getElementById('fSpecies').value,
     inocDate: document.getElementById('fInocDate').value,
     placedDate, harvests: [],
     wall: selectedCell.wall, bay: selectedCell.bay, shelf: selectedCell.shelf, slot: selectedCell.slot,
   };
-  save(); selectedCell = null;
+  blocks[selectedCell.key] = b;
+  selectedCell = null;
   document.getElementById('placePrompt').style.display = '';
   document.getElementById('placeForm').style.display   = 'none';
   renderWalls(); updateStats();
+  await upsertBlock(Object.keys(blocks).find(k => blocks[k] === b) || cellKey(b.wall, b.bay, b.shelf, b.slot), b);
 }
 
-function confirmHarvest() {
+async function confirmHarvest() {
   if (!selectedCell) return;
   const b = blocks[selectedCell.key];
   if (!b) return;
@@ -376,7 +531,8 @@ function confirmHarvest() {
   if (!date || !yld) { alert('Enter date and yield.'); return; }
   if (!b.harvests) b.harvests = [];
   b.harvests.push({ date, yield: Number(yld), flush: Number(flush), notes });
-  save(); renderHarvestBlockInfo(b); renderWalls(); updateStats();
+  renderHarvestBlockInfo(b); renderWalls(); updateStats();
+  await upsertBlock(selectedCell.key, b);
 }
 
 // Batch place
@@ -390,18 +546,23 @@ function updateBatchCount() {
   btn.disabled    = emptySelected === 0;
 }
 function clearDragSelection() { dragSelection.clear(); updateBatchCount(); renderWalls(); }
-function confirmBatch() {
+async function confirmBatch() {
   const placedDate = document.getElementById('fbPlacedDate').value;
   if (!placedDate) { alert('Enter a placed date.'); return; }
   const batchId  = document.getElementById('fbBatchId').value.trim();
   const species  = document.getElementById('fbSpecies').value;
   const inocDate = document.getElementById('fbInocDate').value;
+  const newEntries = [];
   dragSelection.forEach(key => {
     if (blocks[key]) return;
     const parts = key.split('|');
-    blocks[key] = { batchId, species, inocDate, placedDate, harvests: [], wall: parts[0], bay: Number(parts[1]), shelf: Number(parts[2]), slot: Number(parts[3]) };
+    const b = { batchId, species, inocDate, placedDate, harvests: [], wall: parts[0], bay: Number(parts[1]), shelf: Number(parts[2]), slot: Number(parts[3]) };
+    blocks[key] = b;
+    newEntries.push([key, b]);
   });
-  dragSelection.clear(); save(); updateBatchCount(); renderWalls(); updateStats();
+  dragSelection.clear();
+  updateBatchCount(); renderWalls(); updateStats();
+  if (newEntries.length > 0) await upsertMany(newEntries);
 }
 
 // Batch remove
@@ -415,12 +576,14 @@ function updateRemoveCount() {
   btn.disabled    = occupiedSelected === 0;
 }
 function clearRemoveSelection() { removeSelection.clear(); updateRemoveCount(); renderWalls(); }
-function confirmRemoveBatch() {
-  const occupiedSelected = [...removeSelection].filter(k => !!blocks[k]);
-  if (occupiedSelected.length === 0) return;
-  if (!confirm(`Remove ${occupiedSelected.length} block${occupiedSelected.length !== 1 ? 's' : ''} from the shelf? This cannot be undone.`)) return;
-  occupiedSelected.forEach(key => delete blocks[key]);
-  removeSelection.clear(); save(); updateRemoveCount(); renderWalls(); updateStats();
+async function confirmRemoveBatch() {
+  const toRemove = [...removeSelection].filter(k => !!blocks[k]);
+  if (toRemove.length === 0) return;
+  if (!confirm(`Remove ${toRemove.length} block${toRemove.length !== 1 ? 's' : ''} from the shelf? This cannot be undone.`)) return;
+  toRemove.forEach(key => delete blocks[key]);
+  removeSelection.clear();
+  updateRemoveCount(); renderWalls(); updateStats();
+  await deleteMany(toRemove);
 }
 
 function renderWalls() {
@@ -464,7 +627,6 @@ function renderWalls() {
           } else {
             cell.title = `${wall} · Bay ${bay+1} · Shelf ${shelf+1} · Slot ${slot+1}`;
           }
-
           cell.addEventListener('mousedown', e => {
             if (mode === 'batch') {
               e.preventDefault(); isDragging = true;
@@ -478,7 +640,6 @@ function renderWalls() {
               cellClick(wall, bay, shelf, slot);
             }
           });
-
           cell.addEventListener('mouseenter', () => {
             if (mode === 'batch' && isDragging) {
               dragSelection.add(key); updateBatchCount(); renderWalls();
@@ -486,7 +647,6 @@ function renderWalls() {
               if (b) removeSelection.add(key); updateRemoveCount(); renderWalls();
             }
           });
-
           shelfRow.appendChild(cell);
         }
         bayWrapper.appendChild(shelfRow);
@@ -537,7 +697,14 @@ function exportCSV() {
 
 document.addEventListener('mouseup', () => { isDragging = false; });
 
-load(); renderWalls(); updateStats(); setMode('place');
+// ── Boot ─────────────────────────────────────────────────────────
+(async () => {
+  await loadFromSupabase();
+  renderWalls();
+  updateStats();
+  setMode('place');
+  document.getElementById('loadingOverlay').style.display = 'none';
+})();
 </script>
 </body>
 </html>
